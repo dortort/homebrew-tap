@@ -1,11 +1,6 @@
 # typed: false
 # frozen_string_literal: true
 
-# This formula is auto-updated by the release workflow.
-# To bootstrap a Homebrew tap:
-#   1. Create repo: dortort/homebrew-tap
-#   2. Copy this file to: homebrew-tap/Formula/dgossgen.rb
-#   3. The release workflow will update it on each tagged release.
 class Dgossgen < Formula
   desc "Generate dgoss-ready test suites from Dockerfiles"
   homepage "https://github.com/dortort/dgossgen"
@@ -14,23 +9,23 @@ class Dgossgen < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/dortort/dgossgen/releases/download/v#{version}/dgossgen-aarch64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER"
+      url "https://github.com/dortort/dgossgen/releases/download/v0.1.0/dgossgen-aarch64-apple-darwin.tar.gz"
+      sha256 "a33f2abae04627f1d448c06e647a0c9f63582aab02260bf62af2d1ea4cdd589d"
     end
     if Hardware::CPU.intel?
-      url "https://github.com/dortort/dgossgen/releases/download/v#{version}/dgossgen-x86_64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER"
+      url "https://github.com/dortort/dgossgen/releases/download/v0.1.0/dgossgen-x86_64-apple-darwin.tar.gz"
+      sha256 "cba8067ccba5f9408738782ad04229bf69e15c7e577360ccab6ecd419ae79bb3"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/dortort/dgossgen/releases/download/v#{version}/dgossgen-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "PLACEHOLDER"
+      url "https://github.com/dortort/dgossgen/releases/download/v0.1.0/dgossgen-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "403b49fde54483406a7834b52f97d846c340672f86e35018745c7e72dfe02982"
     end
     if Hardware::CPU.intel?
-      url "https://github.com/dortort/dgossgen/releases/download/v#{version}/dgossgen-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "PLACEHOLDER"
+      url "https://github.com/dortort/dgossgen/releases/download/v0.1.0/dgossgen-x86_64-unknown-linux-musl.tar.gz"
+      sha256 "a5d97c80d289055b2718912181e27208ee634ec40ad35584be71e2a7abc6bc34"
     end
   end
 
