@@ -13,7 +13,9 @@ sums=$2
 
 printf '%s\n' "$version" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
   die "version must be MAJOR.MINOR.PATCH, with or without a leading v, got '$1'"
-[ -f "$sums" ] && [ -r "$sums" ] || die "cannot read $sums"
+if [ ! -f "$sums" ] || [ ! -r "$sums" ]; then
+  die "cannot read $sums"
+fi
 
 tag=v$version
 
