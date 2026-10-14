@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+
+die() {
+  printf 'wawarden-formula: %s\n' "$*" >&2
+  exit 1
+}
+
+[ "$#" -eq 2 ] || die "usage: wawarden-formula <version> <SHA256SUMS>"
+
+version=${1#v}
+sums=$2
+
+printf '%s\n' "$version" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
+  die "version must be MAJOR.MINOR.PATCH, with or without a leading v, got '$1'"
+[ -f "$sums" ] && [ -r "$sums" ] || die "cannot read $sums"
+
+tag=v$version
+
+checksum() {
+  awk -v name="wawarden_${tag}_$1" '
+    $2 == name || $2 == "*" name { count++; hash = $1 }
+    END { if (count == 1 && length(hash) == 64 && hash !~ /[^0-9a-f]/) print hash }
+  ' "$sums"
+}
+
+darwin_arm64=$(checksum darwin_arm64)
+darwin_amd64=$(checksum darwin_amd64)
+linux_arm64=$(checksum linux_arm64)
+linux_amd64=$(checksum linux_amd64)
+
+missing=
+[ -n "$darwin_arm64" ] || missing="$missing wawarden_${tag}_darwin_arm64"
+[ -n "$darwin_amd64" ] || missing="$missing wawarden_${tag}_darwin_amd64"
+[ -n "$linux_arm64" ] || missing="$missing wawarden_${tag}_linux_arm64"
+[ -n "$linux_amd64" ] || missing="$missing wawarden_${tag}_linux_amd64"
+[ -z "$missing" ] || die "$sums has no single valid SHA-256 for:$missing"
+
+base=https://github.com/dortort/wawarden/releases/download/$tag/wawarden_$tag
+
+cat <<EOF
+class Wawarden < Formula
+  desc "Self-hosted WhatsApp gateway with per-client, per-chat access for AI agents"
+  homepage "https://github.com/dortort/wawarden"
+  license "GPL-3.0-or-later"
+
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
+  on_macos do
+    depends_on macos: :ventura
+
+    on_arm do
+      url "${base}_darwin_arm64"
+      sha256 "$darwin_arm64"
+    end
+    on_intel do
+      url "${base}_darwin_amd64"
+      sha256 "$darwin_amd64"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "${base}_linux_arm64"
+      sha256 "$linux_arm64"
+    end
+    on_intel do
+      url "${base}_linux_amd64"
+      sha256 "$linux_amd64"
+    end
+  end
+
+  def install
+    os = OS.mac? ? "darwin" : "linux"
+    arch = Hardware::CPU.arm? ? "arm64" : "amd64"
+    bin.install "wawarden_v#{version}_#{os}_#{arch}" => "wawarden"
+  end
+
+  def caveats
+    return unless OS.mac?
+
+    <<~EOS
+      On macOS, wawarden serve needs WAWARDEN_DATA_DIR: its default, /data,
+      does not exist there. macOS is supported for the commands run away from
+      the service, such as backup verify, and for evaluation; the deployment
+      guidance is for Linux only. See:
+        https://wawarden.dortort.dev/getting-started/#macos
+    EOS
+  end
+
+  test do
+    lines = shell_output("#{bin}/wawarden version").lines(chomp: true)
+    assert_equal "wawarden v#{version}", lines.first
+    assert_equal "dev build false", lines.last
+  end
+end
+EOF
