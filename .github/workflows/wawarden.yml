@@ -1,0 +1,251 @@
+name: wawarden
+
+on:
+  schedule:
+    - cron: '37 */6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: wawarden
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check, verify and generate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare the formula with the latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          current=
+          if [ -e Formula/wawarden.rb ]; then
+            current=$(sed -n 's|.*/releases/download/v\([^/]*\)/wawarden_v.*|\1|p' Formula/wawarden.rb | sort -u)
+            if [[ ! "$current" =~ $semver ]]; then
+              echo "::error::Formula/wawarden.rb does not name exactly one release version in its URLs"
+              exit 1
+            fi
+          fi
+          release=$(gh api repos/dortort/wawarden/releases/latest)
+          tag=$(jq -r .tag_name <<< "$release")
+          latest=${tag#v}
+          if [ "$tag" != "v$latest" ] || [[ ! "$latest" =~ $semver ]]; then
+            echo "::error::the latest wawarden release has an unexpected tag: $tag"
+            exit 1
+          fi
+          if [ -n "$current" ] && [ "$(printf '%s\n' "$current" "$latest" | sort -V | tail -n 1)" = "$current" ]; then
+            echo "::notice::Formula/wawarden.rb is at $current; the latest release, $tag, is not newer"
+            exit 0
+          fi
+          for platform in darwin_arm64 darwin_amd64; do
+            asset=wawarden_${tag}_$platform
+            if ! jq -e --arg name "$asset" 'any(.assets[]; .name == $name)' <<< "$release" > /dev/null; then
+              echo "::notice::$tag has no $asset; the formula needs the macOS binaries"
+              exit 0
+            fi
+          done
+          echo "::notice::updating Formula/wawarden.rb from ${current:-nothing} to $latest"
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release
+        if: steps.release.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          tag=v$VERSION
+          immutable=$(gh release view "$tag" --repo dortort/wawarden --json isImmutable --jq .isImmutable)
+          if [ "$immutable" != true ]; then
+            echo "::error::wawarden $tag is not an immutable release"
+            exit 1
+          fi
+          files=(
+            "wawarden_${tag}_darwin_arm64"
+            "wawarden_${tag}_darwin_amd64"
+            "wawarden_${tag}_linux_arm64"
+            "wawarden_${tag}_linux_amd64"
+            SHA256SUMS
+            "wawarden_${tag}_provenance.sigstore.json"
+          )
+          patterns=()
+          for file in "${files[@]}"; do
+            patterns+=(--pattern "$file")
+          done
+          mkdir "$RUNNER_TEMP/release"
+          gh release download "$tag" --repo dortort/wawarden --dir "$RUNNER_TEMP/release" "${patterns[@]}"
+          for file in "${files[@]}"; do
+            if [ ! -f "$RUNNER_TEMP/release/$file" ]; then
+              echo "::error::wawarden $tag has no $file"
+              exit 1
+            fi
+          done
+
+      - name: Verify the checksums and the provenance
+        if: steps.release.outputs.version != ''
+        working-directory: ${{ runner.temp }}/release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          tag=v$VERSION
+          identity=https://github.com/dortort/wawarden/.github/workflows/release.yml@refs/heads/main
+          sha256sum --strict --ignore-missing -c SHA256SUMS
+          for platform in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64; do
+            gh attestation verify "wawarden_${tag}_$platform" --repo dortort/wawarden \
+              --bundle "wawarden_${tag}_provenance.sigstore.json" --cert-identity "$identity"
+          done
+
+      - name: Generate the formula
+        if: steps.release.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          mkdir "$RUNNER_TEMP/formula"
+          script/wawarden-formula "$VERSION" "$RUNNER_TEMP/release/SHA256SUMS" > "$RUNNER_TEMP/formula/wawarden.rb"
+          cat "$RUNNER_TEMP/formula/wawarden.rb"
+
+      - name: Upload the formula
+        if: steps.release.outputs.version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wawarden-formula
+          path: ${{ runner.temp }}/formula/wawarden.rb
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: Install and test on ${{ matrix.runner }}
+    needs: check
+    if: needs.check.outputs.version != ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-26-intel, ubuntu-24.04]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wawarden-formula
+          path: Formula
+
+      - name: Set up Homebrew and tap this repository
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            printf '%s\n' "$HOMEBREW_PREFIX/sbin" "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+          fi
+          brew update
+          taps="$(brew --repository)/Library/Taps/dortort"
+          mkdir -p "$taps"
+          ln -s "$GITHUB_WORKSPACE" "$taps/homebrew-tap"
+          brew trust --tap dortort/tap
+
+      - name: Audit the formula
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+        run: brew audit --strict --online --formula dortort/tap/wawarden
+
+      - name: Check the style of the formula
+        run: brew style --formula dortort/tap/wawarden
+
+      - name: Install the formula
+        run: brew install --formula dortort/tap/wawarden
+
+      - name: Test the formula
+        run: brew test dortort/tap/wawarden
+
+      - name: Run wawarden version
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          wawarden version
+          if [ "$(wawarden version | head -n 1)" != "wawarden v$VERSION" ]; then
+            echo "::error::the installed wawarden does not report v$VERSION"
+            exit 1
+          fi
+
+  commit:
+    name: Commit the formula
+    needs: [check, test]
+    if: needs.check.outputs.version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Download the formula
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wawarden-formula
+          path: ${{ runner.temp }}/formula
+
+      - name: Commit and push to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::the check job handed over an unexpected version: $VERSION"
+            exit 1
+          fi
+          formula=$RUNNER_TEMP/formula/wawarden.rb
+          if [ "$(grep -cF "/releases/download/v$VERSION/wawarden_v${VERSION}_" "$formula")" != 4 ]; then
+            echo "::error::the generated formula does not point at the four v$VERSION binaries"
+            exit 1
+          fi
+          cp "$formula" Formula/wawarden.rb
+          link='| [wawarden](https://github.com/dortort/wawarden) |'
+          row="$link Self-hosted WhatsApp gateway with per-client, per-chat access for AI agents |"
+          if ! grep -qF "$link" README.md; then
+            awk -v row="$row" 'NR == FNR { if (/^\| \[/) last = FNR; next } { print } FNR == last { print row }' README.md README.md > "$RUNNER_TEMP/README.md"
+            cp "$RUNNER_TEMP/README.md" README.md
+            if ! grep -qF "$link" README.md; then
+              echo "::error::README.md has no formula table to add wawarden to"
+              exit 1
+            fi
+          fi
+          git add -- Formula/wawarden.rb README.md
+          if git diff --cached --quiet; then
+            echo "::notice::main already has wawarden $VERSION"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --quiet --message "wawarden $VERSION" -- Formula/wawarden.rb README.md
+          gh auth setup-git
+          git push --quiet origin HEAD:main
+          echo "::notice::pushed wawarden $VERSION to main"
