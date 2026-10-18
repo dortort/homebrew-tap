@@ -12,23 +12,23 @@ class Wawarden < Formula
     depends_on macos: :ventura
 
     on_arm do
-      url "https://github.com/dortort/wawarden/releases/download/v1.1.0/wawarden_v1.1.0_darwin_arm64"
-      sha256 "cdfd760a0beb4b22b432b191b9b9dffdb3c013507ff379b7bebbd662aab84637"
+      url "https://github.com/dortort/wawarden/releases/download/v1.2.0/wawarden_v1.2.0_darwin_arm64"
+      sha256 "c1abcc60497da9314ddb13afa61d2ff8f7cb230fd8999928ce33a45777378879"
     end
     on_intel do
-      url "https://github.com/dortort/wawarden/releases/download/v1.1.0/wawarden_v1.1.0_darwin_amd64"
-      sha256 "ee6be8d3aca0173368e11d542d6894ab8b2ec15f8a9113e18bc50bd4ade5b98c"
+      url "https://github.com/dortort/wawarden/releases/download/v1.2.0/wawarden_v1.2.0_darwin_amd64"
+      sha256 "30b1a221648cf8c3b9e3ce052e4a5bd99e11765be1a22a95b415a7948c9e26d0"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/dortort/wawarden/releases/download/v1.1.0/wawarden_v1.1.0_linux_arm64"
-      sha256 "aa2455ea980c871832da40bb5a8ba137479033e9783531add88792270c7da0c5"
+      url "https://github.com/dortort/wawarden/releases/download/v1.2.0/wawarden_v1.2.0_linux_arm64"
+      sha256 "909bbcf7cc914490ec74388e64bda316ae0d8f6865f43366b4095ba42af9124e"
     end
     on_intel do
-      url "https://github.com/dortort/wawarden/releases/download/v1.1.0/wawarden_v1.1.0_linux_amd64"
-      sha256 "b7ac022c262f296e134124b49a8e0614aa05fe36cebbcc83cc7127fa65d0011b"
+      url "https://github.com/dortort/wawarden/releases/download/v1.2.0/wawarden_v1.2.0_linux_amd64"
+      sha256 "e7cd9dc11f6056f8073e27a6aa8d75754e7846441041a72044988c3820ecc6aa"
     end
   end
 
